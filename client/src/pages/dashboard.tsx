@@ -405,6 +405,23 @@ export default function Dashboard() {
               mosc-tools@moscone.ca
             </a>
           </p>
+          <p className="mt-1.5" data-testid="text-last-updated">
+            Last updated:{' '}
+            {new Date(__BUILD_DATE__).toLocaleDateString(undefined, {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+            {' · '}
+            <a
+              href="https://github.com/professorpete/mosc-tools-ontime-sync"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              View on GitHub
+            </a>
+          </p>
         </footer>
       </main>
 
