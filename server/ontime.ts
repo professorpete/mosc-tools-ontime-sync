@@ -106,8 +106,16 @@ export async function ontimeRequest<T>({
       );
     }
     if (res.status === 404) {
+      if (path === '/data/rundowns/import') {
+        throw new OntimeError(
+          `This Ontime instance is reachable but has no rundown-import API — that endpoint was added in Ontime v4.11.0 (July 2026). ` +
+            `Reading rundowns is an older API, which is why Test connection works. ` +
+            `Update Ontime to v4.11 or newer (https://www.getontime.no/), then sync again.`,
+          404,
+        );
+      }
       throw new OntimeError(
-        `Ontime returned 404 for ${path}. This usually means the address points at something other than an Ontime v4 server.`,
+        `Ontime returned 404 for ${path}. This usually means the address points at something other than an Ontime v4 server, or an Ontime version older than v4.11.`,
         404,
       );
     }
