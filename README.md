@@ -9,7 +9,7 @@ instances on your LAN (`http://192.168.x.x:4001`) that no hosted tool ever could
 
 ## Download & run (Windows)
 
-1. Grab `MoscToolsOntimeSync.exe` from the
+1. Download [`MoscToolsOntimeSync.exe`](https://github.com/professorpete/mosc-tools-ontime-sync/raw/windows-download/MoscToolsOntimeSync.exe) (44 MB) — also linked from the
    [latest release](https://github.com/professorpete/mosc-tools-ontime-sync/releases/latest).
 2. Double-click it. A console window opens, and your browser opens to
    `http://localhost:5000` automatically.
