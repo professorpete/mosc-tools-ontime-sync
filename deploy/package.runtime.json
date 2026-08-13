@@ -1,0 +1,15 @@
+{
+  "name": "mosc-tools-ontime-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mosc-tools — Ontime Show Flow Sync: Google Sheet show flow to Ontime v4 rundown, with manual diff-and-push sync.",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "NODE_ENV=production node dist/index.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7"
+  }
+}
