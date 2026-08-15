@@ -193,25 +193,38 @@ function guardLocalTarget(req: { headers: Record<string, unknown> }, target: { n
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   /* ------------------------------------------------------ session scoping */
-  // Every browser gets its own isolated instance (settings, targets, history).
-  // The id lives in a cookie (30 days, sliding) with an x-session-id header
-  // fallback for embedded contexts that block cookies. Idle sessions are
-  // wiped by cleanupSessions() after SESSION_TTL_DAYS (default 30).
+  // Hosted mode: every browser gets its own isolated instance (settings,
+  // targets, history). The id lives in a cookie (30 days, sliding) with an
+  // x-session-id header fallback for embedded contexts that block cookies.
+  // Idle sessions are wiped by cleanupSessions() after SESSION_TTL_DAYS.
+  //
+  // Packaged Windows .exe: it's one person on one machine, so we skip the
+  // cookie dance entirely and pin every request to a fixed session id. That
+  // way the last-saved sheet source and targets always reload on the next
+  // launch, even if the exe opens a different default browser or a browser
+  // that blocks/clears cookies — there's no "other user" to isolate from.
   const SID_RE = /^[A-Za-z0-9-]{8,64}$/;
+  const isPackaged = Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg);
+  const LOCAL_DESKTOP_SESSION_ID = 'local-desktop';
   let lastCleanup = 0;
   app.use('/api', (req, res, next) => {
-    const cookieSid = /(?:^|;\s*)mosctools_sid=([^;\s]+)/.exec(String(req.headers.cookie ?? ''))?.[1];
-    const headerSid = String(req.headers['x-session-id'] ?? '');
-    const querySid = typeof req.query.sid === 'string' ? req.query.sid : '';
-    // The client-supplied header wins: the frontend owns the id so that all
-    // parallel first requests land in the same session even without cookies.
-    let sessionId = [headerSid, querySid, cookieSid].find((v) => v && SID_RE.test(v)) ?? '';
-    if (!sessionId) sessionId = randomUUID();
-    const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http');
-    res.setHeader(
-      'Set-Cookie',
-      `mosctools_sid=${sessionId}; Path=/; Max-Age=${30 * 86400}; SameSite=Lax${proto === 'https' ? '; Secure' : ''}`,
-    );
+    let sessionId: string;
+    if (isPackaged) {
+      sessionId = LOCAL_DESKTOP_SESSION_ID;
+    } else {
+      const cookieSid = /(?:^|;\s*)mosctools_sid=([^;\s]+)/.exec(String(req.headers.cookie ?? ''))?.[1];
+      const headerSid = String(req.headers['x-session-id'] ?? '');
+      const querySid = typeof req.query.sid === 'string' ? req.query.sid : '';
+      // The client-supplied header wins: the frontend owns the id so that all
+      // parallel first requests land in the same session even without cookies.
+      sessionId = [headerSid, querySid, cookieSid].find((v) => v && SID_RE.test(v)) ?? '';
+      if (!sessionId) sessionId = randomUUID();
+      const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http');
+      res.setHeader(
+        'Set-Cookie',
+        `mosctools_sid=${sessionId}; Path=/; Max-Age=${30 * 86400}; SameSite=Lax${proto === 'https' ? '; Secure' : ''}`,
+      );
+    }
     res.setHeader('x-session-id', sessionId);
     (req as Request & { sessionId?: string }).sessionId = sessionId;
     storage.touchSession(sessionId);
@@ -236,6 +249,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
     snapshots.delete(sid(req));
     res.json(storage.updateSettings(sid(req), parsed.data));
+  });
+
+  // "Clear all settings" button: wipes this session's sheet source, targets,
+  // and sync history, then reseeds the defaults so the app is immediately
+  // usable again without a relaunch.
+  app.post('/api/reset', (req, res) => {
+    storage.resetSession(sid(req));
+    snapshots.delete(sid(req));
+    res.json({ ok: true });
   });
 
   /* ---------------------------------------------------------------- sheet */

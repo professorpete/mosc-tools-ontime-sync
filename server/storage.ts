@@ -94,6 +94,7 @@ const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? 30);
 
 export interface IStorage {
   touchSession(sessionId: string): void;
+  resetSession(sessionId: string): void;
   cleanupSessions(): number;
   getSettings(sessionId: string): Settings;
   updateSettings(sessionId: string, patch: UpdateSettings): Settings;
@@ -134,6 +135,21 @@ export class JsonStorage implements IStorage {
       }
     }
     save();
+  }
+
+  /**
+   * Wipe one session's settings, targets, and sync history back to a clean slate,
+   * then immediately reseed the defaults ("Clear all settings" button).
+   */
+  resetSession(sessionId: string): void {
+    const targetIds = new Set(
+      db.targets.filter((t) => t.sessionId === sessionId).map((t) => t.id),
+    );
+    db.syncLog = db.syncLog.filter((l) => !targetIds.has(l.targetId));
+    db.targets = db.targets.filter((t) => t.sessionId !== sessionId);
+    db.settings = db.settings.filter((s) => s.sessionId !== sessionId);
+    save();
+    this.touchSession(sessionId);
   }
 
   /** Delete sessions idle beyond the TTL, along with everything they own. */

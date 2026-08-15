@@ -91,6 +91,7 @@ export const api = {
   getSettings: () => json<Settings>('GET', '/api/settings'),
   saveSettings: (body: { sheetId: string; tabName: string; showName: string }) =>
     json<Settings>('PATCH', '/api/settings', body),
+  resetAll: () => json<{ ok: true }>('POST', '/api/reset'),
   getSnapshot: () => json<ShowFlowSnapshot | null>('GET', '/api/showflow'),
   fetchSheet: () => json<ShowFlowSnapshot>('POST', '/api/showflow/fetch'),
   getTargets: () => json<TargetWithHistory[]>('GET', '/api/targets'),

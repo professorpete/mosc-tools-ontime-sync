@@ -115,9 +115,11 @@ app.use((req, res, next) => {
         if (lan) {
           console.log(`  From another device on this network: http://${lan.address}:${port}`);
         }
-        console.log("  Keep this window open while you work. Press Ctrl+C to quit.");
+        console.log("  This window will minimize itself in a moment — find it in your taskbar.");
+        console.log("  Don't close it (that stops the server); press Ctrl+C to quit properly.");
         console.log("");
         openBrowser(url);
+        minimizeConsoleWindow();
       }
     },
   );
@@ -136,5 +138,30 @@ function openBrowser(url: string) {
     }
   } catch {
     /* the URL is printed above — opening the browser is a convenience only */
+  }
+}
+
+/**
+ * Best-effort: minimize (not close) the console window on Windows so it stays out of
+ * the way without users needing to click the X — which kills the server instantly instead
+ * of shutting it down gracefully. Also relabels the window so it's unmistakable if restored.
+ * Uses SW_SHOWMINNOACTIVE (7) so it minimizes without stealing focus from the browser tab
+ * that just opened. Skipped on NO_OPEN=1 (headless/dev use) and non-Windows platforms.
+ */
+function minimizeConsoleWindow() {
+  if (process.platform !== "win32" || process.env.NO_OPEN === "1") return;
+  try {
+    const psScript = `
+$sig = Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);' -Name Win32 -Namespace MoscTools -PassThru
+$h = [MoscTools.Win32]::GetConsoleWindow()
+[MoscTools.Win32]::ShowWindowAsync($h, 7) | Out-Null
+[Console]::Title = 'Mosc-tools Ontime Show Flow Sync (minimized) - do not close, Ctrl+C to quit'
+`.trim();
+    spawn("powershell", ["-NoProfile", "-NonInteractive", "-Command", psScript], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } catch {
+    /* best-effort only — worst case the console just stays visible and untitled */
   }
 }

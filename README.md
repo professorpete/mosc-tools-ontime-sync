@@ -55,18 +55,26 @@ loaded?"
 1. Download [`MoscToolsOntimeSync.exe`](https://github.com/professorpete/mosc-tools-ontime-sync/raw/windows-download/MoscToolsOntimeSync.exe)
    (44 MB) — also linked from the
    [latest release](https://github.com/professorpete/mosc-tools-ontime-sync/releases/latest).
-2. Double-click it. A console window opens, and your browser opens to
-   `http://localhost:5000` automatically.
+2. Double-click it. A console window opens briefly, your browser opens to
+   `http://localhost:5000` automatically, and the console window then minimizes itself
+   to the taskbar out of your way.
    - Windows SmartScreen may warn about an unsigned app — choose "More info" → "Run anyway".
-   - Keep the console window open while you work; press `Ctrl+C` (or close it) to quit.
+   - **Don't close the console window** — that kills the server instantly. It's meant to
+     stay minimized in your taskbar; if you need to quit, restore it and press `Ctrl+C`.
 3. Click the gear icon (top right), paste your Google Sheet ID and tab name, and fetch.
 
 Your settings and sync history are saved in `%APPDATA%\MoscTools\OntimeSync\data.json` and
-survive restarts. Other devices on your network can open the console-printed LAN URL to
-use the same instance.
+automatically reload the next time you launch the app — no need to re-enter your sheet ID
+or sync targets. (The Windows build always reuses the same local profile, so this works
+regardless of which browser it opens.) Other devices on your network can open the
+console-printed LAN URL to use the same instance.
+
+Starting over? Open the gear icon → "Clear all settings" to wipe the sheet source, sync
+targets, and history back to defaults.
 
 - Set `PORT=xxxx` before launching to use a different port.
-- Set `NO_OPEN=1` to skip the automatic browser launch.
+- Set `NO_OPEN=1` to skip the automatic browser launch (also leaves the console window
+  un-minimized, useful when running as a background/headless service).
 
 An Excel template for the expected sheet layout is available in-app
 (`/showflow-template.xlsx`). The sheet just needs to be viewable by link (or published

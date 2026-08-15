@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Settings2,
   Sun,
+  Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { ColourLegend, ParseWarnings, RundownPreview } from '@/components/rundown-preview';
 import { TargetsPanel } from '@/components/targets-panel';
@@ -53,6 +64,7 @@ function SettingsDialog({
   const [tabName, setTabName] = useState(settings?.tabName ?? '');
   const [showName, setShowName] = useState(settings?.showName ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
 
   useEffect(() => {
     if (open && settings) {
@@ -72,6 +84,29 @@ function SettingsDialog({
       onOpenChange(false);
     },
     onError: (err) => setError(errorText(err)),
+  });
+
+  const clearAll = useMutation({
+    mutationFn: api.resetAll,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/settings'] });
+      qc.invalidateQueries({ queryKey: ['/api/targets'] });
+      qc.invalidateQueries({ queryKey: ['/api/showflow'] });
+      setSheetId('');
+      setTabName('');
+      setShowName('');
+      setError(null);
+      setClearOpen(false);
+      onOpenChange(false);
+      toast({
+        title: 'All settings cleared',
+        description: 'Sheet source and sync targets are back to defaults.',
+      });
+    },
+    onError: (err) => {
+      setClearOpen(false);
+      setError(errorText(err));
+    },
   });
 
   const REQUIRED_COLUMNS: Array<[string, ReactNode]> = [
@@ -158,15 +193,49 @@ function SettingsDialog({
             </span>
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setClearOpen(true)}
+            data-testid="button-clear-all-settings"
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" /> Clear all settings
           </Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="button-save-settings">
-            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save source
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="button-save-settings">
+              {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save source
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-clear-all">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all settings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This wipes the saved sheet source (show name, sheet ID, tab name), every sync
+              target (Ontime Cloud and local URLs, tokens), and the sync history. It cannot be
+              undone. You'll need to re-enter everything from scratch.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-clear-all">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => clearAll.mutate()}
+              disabled={clearAll.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-clear-all"
+            >
+              {clearAll.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Clear everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
