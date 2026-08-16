@@ -53,7 +53,7 @@ interface RequestOptions {
   baseUrl: string;
   token?: string | null;
   path: string;
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
 }
 
@@ -246,11 +246,17 @@ const isOurs = (title: unknown) =>
 /**
  * Pushes the aux-timer automations generated from the sheet to an Ontime instance.
  *
- * Read-merge-write: fetches the instance's current automation settings, strips ONLY
- * entries a previous sync created (title starts with the Mosc-sync prefix), appends
- * the freshly generated ones, and posts the settings back. Manual automations and
- * the OSC-input configuration are preserved untouched. Ontime only fires automations
- * when enabledAutomations is true, so it is switched on whenever we push any.
+ * Uses the granular endpoints (create/delete one automation or trigger at a time),
+ * exactly like Ontime's own settings UI. The wholesale settings POST cannot be used
+ * for this: its validator runs the single-automation parser against the whole
+ * automations record, so any bulk payload is rejected with HTTP 422 (verified in
+ * automation.validation.ts, Ontime v4 master).
+ *
+ * Order matters: Ontime refuses to delete an automation that a trigger still
+ * references, so stale triggers go first, then stale automations. Only entries a
+ * previous sync created (title starts with the Mosc-sync prefix) are touched —
+ * hand-made automations and the OSC-input configuration are preserved. Automations
+ * only fire when enabledAutomations is true, so it is switched on when we push any.
  */
 export async function syncAuxAutomations(
   baseUrl: string,
@@ -258,38 +264,77 @@ export async function syncAuxAutomations(
   bundle: AuxAutomationBundle,
 ): Promise<{ written: number; removedStale: number; enabled: boolean }> {
   const existing = await getAutomationSettings(baseUrl, token);
-
   const existingAutomations = existing.automations ?? {};
-  const keptAutomations: Record<string, OntimeAutomation> = {};
+
+  // 1. delete stale triggers first (an automation in use by a trigger cannot be deleted)
+  for (const trigger of existing.triggers ?? []) {
+    const target = existingAutomations[trigger?.automationId ?? ''];
+    if (isOurs(trigger?.title) || isOurs(target?.title)) {
+      await ontimeRequest<void>({
+        baseUrl,
+        token,
+        path: `/data/automations/trigger/${encodeURIComponent(trigger.id)}`,
+        method: 'DELETE',
+      });
+    }
+  }
+
+  // 2. delete stale automations
   let removedStale = 0;
   for (const [id, automation] of Object.entries(existingAutomations)) {
     if (isOurs(automation?.title)) {
+      await ontimeRequest<void>({
+        baseUrl,
+        token,
+        path: `/data/automations/automation/${encodeURIComponent(id)}`,
+        method: 'DELETE',
+      });
       removedStale++;
-      continue;
     }
-    keptAutomations[id] = automation;
   }
 
-  const keptTriggers = (existing.triggers ?? []).filter((t) => {
-    if (isOurs(t?.title)) return false;
-    const targetAutomation = existingAutomations[t?.automationId ?? ''];
-    return !isOurs(targetAutomation?.title);
-  });
-
-  const written = Object.keys(bundle.automations).length;
-  if (written === 0 && removedStale === 0) {
-    // Nothing to add and nothing of ours to clean up — leave the instance untouched.
-    return { written: 0, removedStale: 0, enabled: existing.enabledAutomations ?? false };
+  // 3. create each automation (Ontime assigns the id), then its trigger(s)
+  let written = 0;
+  for (const automation of Object.values(bundle.automations)) {
+    const created = await ontimeRequest<OntimeAutomation>({
+      baseUrl,
+      token,
+      path: '/data/automations/automation',
+      method: 'POST',
+      body: {
+        title: automation.title,
+        filterRule: automation.filterRule,
+        filters: automation.filters,
+        outputs: automation.outputs,
+      },
+    });
+    for (const trigger of bundle.triggers.filter((t) => t.automationId === automation.id)) {
+      await ontimeRequest<OntimeTrigger>({
+        baseUrl,
+        token,
+        path: '/data/automations/trigger',
+        method: 'POST',
+        body: { title: trigger.title, trigger: trigger.trigger, automationId: created.id },
+      });
+    }
+    written++;
   }
 
+  // 4. make sure automations actually fire (root-properties-only settings patch)
   const enabled = written > 0 ? true : (existing.enabledAutomations ?? false);
-  await postAutomationSettings(baseUrl, token, {
-    enabledAutomations: enabled,
-    enabledOscIn: existing.enabledOscIn ?? false,
-    oscPortIn: existing.oscPortIn ?? 8888,
-    triggers: [...keptTriggers, ...bundle.triggers],
-    automations: { ...keptAutomations, ...bundle.automations },
-  });
+  if (written > 0 || removedStale > 0) {
+    await ontimeRequest<AutomationSettings>({
+      baseUrl,
+      token,
+      path: '/data/automations',
+      method: 'POST',
+      body: {
+        enabledAutomations: enabled,
+        enabledOscIn: existing.enabledOscIn ?? false,
+        oscPortIn: existing.oscPortIn ?? 8888,
+      },
+    });
+  }
 
   return { written, removedStale, enabled };
 }

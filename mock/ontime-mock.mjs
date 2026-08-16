@@ -194,6 +194,16 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && path === '/data/automations') return send(res, 200, state.automation);
 
+  const LIFECYCLES = ['onLoad', 'onStart', 'onPause', 'onStop', 'onClock', 'onUpdate', 'onFinish', 'onWarning', 'onDanger'];
+  /** Mirrors Ontime's parseAutomation — validates ONE automation body. */
+  const validAutomationBody = (a) =>
+    a && typeof a === 'object' && typeof a.title === 'string' &&
+    ['all', 'any'].includes(a.filterRule) && Array.isArray(a.filters) && Array.isArray(a.outputs) &&
+    a.filters.every((f) => f && typeof f.field === 'string' && typeof f.operator === 'string' && typeof f.value === 'string') &&
+    a.outputs.every((o) =>
+      o && (o.type === 'osc' || o.type === 'http' || o.type === 'ontime') &&
+      (o.type !== 'ontime' || (typeof o.action === 'string' && (!/^aux\d-set$/.test(o.action) || typeof o.time === 'string'))));
+
   if (req.method === 'POST' && path === '/data/automations') {
     let raw = '';
     for await (const chunk of req) raw += chunk;
@@ -204,40 +214,87 @@ const server = http.createServer(async (req, res) => {
       return send(res, 400, { message: 'Invalid JSON body' });
     }
     if (typeof body.enabledAutomations !== 'boolean' || typeof body.enabledOscIn !== 'boolean') {
-      return send(res, 400, { message: 'enabledAutomations and enabledOscIn booleans are required' });
+      return send(res, 422, { errors: [{ type: 'field', msg: 'Invalid value' }] });
     }
     if (!Number.isInteger(body.oscPortIn) || body.oscPortIn < 1024 || body.oscPortIn > 65535) {
-      return send(res, 400, { message: 'oscPortIn must be a port number' });
+      return send(res, 422, { errors: [{ type: 'field', msg: 'oscPortIn must be a port' }] });
     }
-    const triggers = body.triggers ?? [];
-    const automations = body.automations ?? {};
-    if (!Array.isArray(triggers) || typeof automations !== 'object' || automations === null) {
-      return send(res, 400, { message: 'triggers must be an array and automations an object' });
+    /* Faithful quirk of the real API (automation.validation.ts): the `automations`
+       field is validated with the SINGLE-automation parser, so a Record of
+       automations always fails — bulk pushes get HTTP 422. Use the granular
+       /automation and /trigger endpoints instead, like the Ontime UI does. */
+    if (body.automations !== undefined && !validAutomationBody(body.automations)) {
+      return send(res, 422, {
+        errors: [{ type: 'field', path: 'automations', value: body.automations, msg: 'Invalid value' }],
+      });
     }
-    const lifecycles = ['onLoad', 'onStart', 'onPause', 'onStop', 'onClock', 'onUpdate', 'onFinish', 'onWarning', 'onDanger'];
-    for (const t of triggers) {
-      if (!t.id || !t.title || !lifecycles.includes(t.trigger) || !automations[t.automationId]) {
-        return send(res, 400, { message: `invalid trigger ${JSON.stringify(t)}` });
+    if (body.triggers !== undefined) {
+      if (!Array.isArray(body.triggers) || body.triggers.some((t) => t.trigger && !LIFECYCLES.includes(t.trigger))) {
+        return send(res, 422, { errors: [{ type: 'field', path: 'triggers', msg: 'Invalid value' }] });
       }
+      state.automation.triggers = body.triggers;
     }
-    for (const [id, a] of Object.entries(automations)) {
-      if (a.id !== id || !a.title || !['all', 'any'].includes(a.filterRule) || !Array.isArray(a.filters) || !Array.isArray(a.outputs)) {
-        return send(res, 400, { message: `invalid automation ${id}` });
-      }
-      for (const o of a.outputs) {
-        if (o.type === 'ontime' && /-set$/.test(o.action) && /^aux/.test(o.action) && typeof o.time !== 'string') {
-          return send(res, 400, { message: `automation ${id}: ${o.action} requires a time string` });
-        }
-      }
-    }
-    state.automation = {
-      enabledAutomations: body.enabledAutomations,
-      enabledOscIn: body.enabledOscIn,
-      oscPortIn: body.oscPortIn,
-      triggers,
-      automations,
-    };
+    state.automation.enabledAutomations = body.enabledAutomations;
+    state.automation.enabledOscIn = body.enabledOscIn;
+    state.automation.oscPortIn = body.oscPortIn;
     return send(res, 200, state.automation);
+  }
+
+  if (req.method === 'POST' && path === '/data/automations/automation') {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    let body;
+    try {
+      body = JSON.parse(raw || '{}');
+    } catch {
+      return send(res, 400, { message: 'Invalid JSON body' });
+    }
+    if (!validAutomationBody(body)) return send(res, 422, { errors: [{ type: 'field', msg: 'Invalid value' }] });
+    const id = Math.random().toString(36).slice(2, 10); // server-generated, like Ontime's generateId
+    state.automation.automations[id] = {
+      id,
+      title: body.title,
+      filterRule: body.filterRule,
+      filters: body.filters,
+      outputs: body.outputs,
+    };
+    return send(res, 201, state.automation.automations[id]);
+  }
+
+  if (req.method === 'DELETE' && path.startsWith('/data/automations/automation/')) {
+    const id = decodeURIComponent(path.slice('/data/automations/automation/'.length));
+    if (state.automation.automations[id]) {
+      const used = state.automation.triggers.find((t) => t.automationId === id);
+      if (used) return send(res, 400, { message: `Unable to delete automation used in trigger ${used.title}` });
+      delete state.automation.automations[id];
+    }
+    res.writeHead(204).end();
+    return;
+  }
+
+  if (req.method === 'POST' && path === '/data/automations/trigger') {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    let body;
+    try {
+      body = JSON.parse(raw || '{}');
+    } catch {
+      return send(res, 400, { message: 'Invalid JSON body' });
+    }
+    if (!body.title || !LIFECYCLES.includes(body.trigger) || !state.automation.automations[body.automationId]) {
+      return send(res, 400, { message: 'invalid trigger' });
+    }
+    const id = Math.random().toString(36).slice(2, 10);
+    const trigger = { id, title: body.title, trigger: body.trigger, automationId: body.automationId };
+    state.automation.triggers.push(trigger);
+    return send(res, 201, trigger);
+  }
+
+  if (req.method === 'DELETE' && path.startsWith('/data/automations/trigger/')) {
+    const id = decodeURIComponent(path.slice('/data/automations/trigger/'.length));
+    state.automation.triggers = state.automation.triggers.filter((t) => t.id !== id);
+    res.writeHead(204).end();
+    return;
   }
 
   if (req.method === 'POST' && path === '/data/rundowns/import') {

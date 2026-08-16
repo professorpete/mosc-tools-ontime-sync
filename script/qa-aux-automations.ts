@@ -1,6 +1,6 @@
 /** Ad-hoc end-to-end check for aux-timer automations (not shipped). */
-import { parseShowFlowCsv, convertToOntime, formatAuxTime } from './shared/showflow';
-import { syncAuxAutomations, getAutomationSettings } from './server/ontime';
+import { parseShowFlowCsv, convertToOntime, formatAuxTime } from '../shared/showflow';
+import { syncAuxAutomations, getAutomationSettings } from '../server/ontime';
 
 const csv = [
   'Cue #,Start Time,Duration,End Time,Linkstart,Title,Aux Timer,Colour,Screen State,Main,Flanks,Audio,Lighting,Speakers,Stage,Notes',
@@ -73,6 +73,21 @@ const main = async () => {
   assert(r3.written === 0 && r3.removedStale === 4, 'empty sheet cleans up our automations');
   const s3 = await getAutomationSettings(BASE, null);
   assert(Object.keys(s3.automations).length === 1 && Boolean(s3.automations['manualA1']), 'only manual remains');
+  assert(s3.triggers.length === 1 && s3.triggers[0].id === 'manual01', 'manual trigger preserved');
+
+  // guard: wholesale settings POST with an automations record must be rejected (the
+  // real Ontime validator runs the single-automation parser on the whole record).
+  const guard = await fetch(`${BASE}/data/automations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      enabledAutomations: true,
+      enabledOscIn: false,
+      oscPortIn: 8888,
+      automations: s3.automations,
+    }),
+  });
+  assert(guard.status === 422, 'bulk automations push is rejected with 422 (use granular endpoints)');
 
   console.log('\nALL TESTS PASSED');
 };
