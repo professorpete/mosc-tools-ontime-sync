@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -65,6 +66,21 @@ function SettingsDialog({
   const [showName, setShowName] = useState(settings?.showName ?? '');
   const [error, setError] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
+  const [tabOptions, setTabOptions] = useState<string[]>([]);
+  const [tabsError, setTabsError] = useState<string | null>(null);
+  const [manualTabEntry, setManualTabEntry] = useState(false);
+
+  const fetchTabs = useMutation({
+    mutationFn: (id: string) => api.getSheetTabs(id),
+    onSuccess: (data) => {
+      setTabOptions(data.tabs);
+      setTabsError(null);
+    },
+    onError: (err) => {
+      setTabOptions([]);
+      setTabsError(errorText(err));
+    },
+  });
 
   useEffect(() => {
     if (open && settings) {
@@ -72,7 +88,12 @@ function SettingsDialog({
       setTabName(settings.tabName);
       setShowName(settings.showName);
       setError(null);
+      setManualTabEntry(false);
+      setTabOptions([]);
+      setTabsError(null);
+      if (settings.sheetId.trim()) fetchTabs.mutate(settings.sheetId.trim());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, settings]);
 
   const save = useMutation({
@@ -97,6 +118,9 @@ function SettingsDialog({
       setShowName('');
       setError(null);
       setClearOpen(false);
+      setTabOptions([]);
+      setTabsError(null);
+      setManualTabEntry(false);
       onOpenChange(false);
       toast({
         title: 'All settings cleared',
@@ -146,20 +170,91 @@ function SettingsDialog({
             <Input
               id="sheet-id"
               value={sheetId}
-              onChange={(e) => setSheetId(e.target.value)}
+              onChange={(e) => {
+                setSheetId(e.target.value);
+                setTabOptions([]);
+                setTabsError(null);
+              }}
+              onBlur={() => {
+                const id = sheetId.trim();
+                if (id) fetchTabs.mutate(id);
+              }}
               className="font-mono text-sm"
               data-testid="input-sheet-id"
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="tab-name">Tab name</Label>
-            <Input
-              id="tab-name"
-              value={tabName}
-              onChange={(e) => setTabName(e.target.value)}
-              className="font-mono text-sm"
-              data-testid="input-tab-name"
-            />
+            <div className="flex items-center justify-between">
+              <Label htmlFor="tab-name">Tab name</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-xs text-muted-foreground"
+                onClick={() => sheetId.trim() && fetchTabs.mutate(sheetId.trim())}
+                disabled={!sheetId.trim() || fetchTabs.isPending}
+                data-testid="button-refresh-tabs"
+              >
+                {fetchTabs.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+                Load tabs
+              </Button>
+            </div>
+            {tabOptions.length > 0 && !manualTabEntry ? (
+              <>
+                <Select
+                  value={tabOptions.includes(tabName) ? tabName : undefined}
+                  onValueChange={setTabName}
+                >
+                  <SelectTrigger id="tab-name" className="font-mono text-sm" data-testid="select-tab-name">
+                    <SelectValue placeholder="Choose a tab…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tabOptions.map((name) => (
+                      <SelectItem key={name} value={name} className="font-mono text-sm">
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground hover:underline"
+                  onClick={() => setManualTabEntry(true)}
+                  data-testid="button-type-tab-manually"
+                >
+                  Type the tab name instead
+                </button>
+              </>
+            ) : (
+              <>
+                <Input
+                  id="tab-name"
+                  value={tabName}
+                  onChange={(e) => setTabName(e.target.value)}
+                  className="font-mono text-sm"
+                  data-testid="input-tab-name"
+                />
+                {tabOptions.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-muted-foreground hover:underline"
+                    onClick={() => setManualTabEntry(false)}
+                    data-testid="button-use-tab-dropdown"
+                  >
+                    Choose from the {tabOptions.length} tabs found instead
+                  </button>
+                )}
+                {tabsError && (
+                  <p className="text-[11px] text-muted-foreground" data-testid="text-tabs-error">
+                    {tabsError} — you can still type the tab name manually.
+                  </p>
+                )}
+              </>
+            )}
           </div>
           {error && <p className="text-sm text-destructive" data-testid="text-settings-error">{error}</p>}
 

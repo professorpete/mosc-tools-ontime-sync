@@ -92,6 +92,8 @@ export const api = {
   saveSettings: (body: { sheetId: string; tabName: string; showName: string }) =>
     json<Settings>('PATCH', '/api/settings', body),
   resetAll: () => json<{ ok: true }>('POST', '/api/reset'),
+  getSheetTabs: (sheetId: string) =>
+    json<{ tabs: string[] }>('GET', `/api/sheet-tabs?sheetId=${encodeURIComponent(sheetId)}`),
   getSnapshot: () => json<ShowFlowSnapshot | null>('GET', '/api/showflow'),
   fetchSheet: () => json<ShowFlowSnapshot>('POST', '/api/showflow/fetch'),
   getTargets: () => json<TargetWithHistory[]>('GET', '/api/targets'),

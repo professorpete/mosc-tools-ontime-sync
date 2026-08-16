@@ -946,12 +946,10 @@ export function diffRundowns(
 
 /* -------------------------------------------------- new rundown naming */
 
-/** Base name for a rundown created with mode: 'new' — "Show name — Tab name". */
-export function rundownBaseTitle(showName: string, tabName: string): string {
-  const show = (showName ?? '').trim();
+/** Base name for a rundown created with mode: 'new' — matches the Google Sheet tab name. */
+export function rundownBaseTitle(tabName: string): string {
   const tab = (tabName ?? '').trim();
-  if (show && tab) return `${show} — ${tab}`;
-  return show || tab || 'Show flow';
+  return tab || 'Show flow';
 }
 
 function escapeRegExp(value: string): string {
@@ -982,4 +980,33 @@ export function sheetCsvUrl(sheetId: string, tabName: string): string {
 
 export function sheetEditUrl(sheetId: string): string {
   return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/edit`;
+}
+
+/** Decode the small set of HTML entities Google emits in tab captions (names, &amp;, etc). */
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+/**
+ * Extracts tab (worksheet) names from the raw HTML of a spreadsheet's /edit page.
+ * Google renders each tab as `<div class="docs-sheet-tab-caption">Name</div>` in the
+ * initial server-rendered markup (no JS execution needed), but this relies on Google's
+ * internal editor markup rather than a documented API — if Google changes this class
+ * name, tab listing will silently return an empty list until updated.
+ */
+export function extractSheetTabNames(html: string): string[] {
+  const names: string[] = [];
+  const pattern = /docs-sheet-tab-caption[^>]*>([^<]*)</g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html)) !== null) {
+    const name = decodeHtmlEntities(match[1]).trim();
+    if (name) names.push(name);
+  }
+  return names;
 }

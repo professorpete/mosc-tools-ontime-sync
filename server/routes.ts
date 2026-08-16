@@ -20,6 +20,7 @@ import {
   diffRundowns,
   sheetCsvUrl,
   sheetEditUrl,
+  extractSheetTabNames,
   rundownBaseTitle,
   versionedRundownTitle,
   type ParsedShowFlow,
@@ -251,6 +252,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(storage.updateSettings(sid(req), parsed.data));
   });
 
+  // Lists the tab names of a Google Sheet so the Settings dialog can offer a
+  // dropdown instead of free-typing the tab name. Reads the sheet's public
+  // /edit page HTML and pulls out each tab's caption — no API key needed,
+  // but it depends on Google's editor markup rather than a documented API.
+  app.get('/api/sheet-tabs', async (req, res) => {
+    const sheetId = String(req.query.sheetId ?? '').trim();
+    if (!sheetId) return res.status(400).json({ message: 'Missing sheetId.' });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(sheetEditUrl(sheetId), {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      const html = await response.text();
+
+      if (response.status === 404) {
+        return res.status(404).json({ message: `No sheet found with ID "${sheetId}".` });
+      }
+      const tabs = extractSheetTabNames(html);
+      if (!response.ok || tabs.length === 0) {
+        return res.status(422).json({
+          message: `Could not read tabs for sheet "${sheetId}" — make sure it's shared as "Anyone with the link can view", then try again or type the tab name manually.`,
+        });
+      }
+      res.json({ tabs });
+    } catch (err) {
+      const e = err as Error;
+      res.status(502).json({
+        message:
+          e.name === 'AbortError'
+            ? 'Timed out reaching Google Sheets. Check this machine has internet access, or type the tab name manually.'
+            : `Could not reach Google Sheets: ${e.message}`,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   // "Clear all settings" button: wipes this session's sheet source, targets,
   // and sync history, then reseeds the defaults so the app is immediately
   // usable again without a relaunch.
@@ -387,7 +429,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!target) return res.status(404).json({ message: 'Target not found' });
     try {
       const s = requireSnapshot(sid(req));
-      const base = rundownBaseTitle(s.showName, s.tabName);
+      const base = rundownBaseTitle(s.tabName);
       let existing: string[] = [];
       try {
         const list = await getRundowns(target.baseUrl, target.authToken);
@@ -420,9 +462,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let rundownTitle: string | null = null;
 
       if (mode === 'new') {
-        // Name the new rundown after the show + tab, versioning up if that name is taken.
+        // Name the new rundown after the Google Sheet tab, versioning up if that name is taken.
         rundownTitle = versionedRundownTitle(
-          rundownBaseTitle(s.showName, s.tabName),
+          rundownBaseTitle(s.tabName),
           (list.rundowns ?? []).map((r) => r.title ?? ''),
         );
       } else {
