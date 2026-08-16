@@ -113,6 +113,24 @@ const state = {
     Screenstate: { type: 'text', colour: '#9E9E9E', label: 'Screenstate' },
     Legacy_Notes: { type: 'text', colour: '#666666', label: 'Legacy Notes' },
   },
+  // Seeded with one "hand-made" automation so QA can verify a sync preserves it.
+  automation: {
+    enabledAutomations: false,
+    enabledOscIn: true,
+    oscPortIn: 8899,
+    triggers: [
+      { id: 'manual01', title: 'House lights on load', trigger: 'onLoad', automationId: 'manualA1' },
+    ],
+    automations: {
+      manualA1: {
+        id: 'manualA1',
+        title: 'House lights on load',
+        filterRule: 'all',
+        filters: [],
+        outputs: [{ type: 'ontime', action: 'message-set', text: 'lights', visible: true }],
+      },
+    },
+  },
 };
 
 /** Last credentials seen by the mock — inspect with GET /__last-auth. */
@@ -173,6 +191,54 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, found);
   }
   if (req.method === 'GET' && path === '/__last-auth') return send(res, 200, lastAuth ?? {});
+
+  if (req.method === 'GET' && path === '/data/automations') return send(res, 200, state.automation);
+
+  if (req.method === 'POST' && path === '/data/automations') {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    let body;
+    try {
+      body = JSON.parse(raw || '{}');
+    } catch {
+      return send(res, 400, { message: 'Invalid JSON body' });
+    }
+    if (typeof body.enabledAutomations !== 'boolean' || typeof body.enabledOscIn !== 'boolean') {
+      return send(res, 400, { message: 'enabledAutomations and enabledOscIn booleans are required' });
+    }
+    if (!Number.isInteger(body.oscPortIn) || body.oscPortIn < 1024 || body.oscPortIn > 65535) {
+      return send(res, 400, { message: 'oscPortIn must be a port number' });
+    }
+    const triggers = body.triggers ?? [];
+    const automations = body.automations ?? {};
+    if (!Array.isArray(triggers) || typeof automations !== 'object' || automations === null) {
+      return send(res, 400, { message: 'triggers must be an array and automations an object' });
+    }
+    const lifecycles = ['onLoad', 'onStart', 'onPause', 'onStop', 'onClock', 'onUpdate', 'onFinish', 'onWarning', 'onDanger'];
+    for (const t of triggers) {
+      if (!t.id || !t.title || !lifecycles.includes(t.trigger) || !automations[t.automationId]) {
+        return send(res, 400, { message: `invalid trigger ${JSON.stringify(t)}` });
+      }
+    }
+    for (const [id, a] of Object.entries(automations)) {
+      if (a.id !== id || !a.title || !['all', 'any'].includes(a.filterRule) || !Array.isArray(a.filters) || !Array.isArray(a.outputs)) {
+        return send(res, 400, { message: `invalid automation ${id}` });
+      }
+      for (const o of a.outputs) {
+        if (o.type === 'ontime' && /-set$/.test(o.action) && /^aux/.test(o.action) && typeof o.time !== 'string') {
+          return send(res, 400, { message: `automation ${id}: ${o.action} requires a time string` });
+        }
+      }
+    }
+    state.automation = {
+      enabledAutomations: body.enabledAutomations,
+      enabledOscIn: body.enabledOscIn,
+      oscPortIn: body.oscPortIn,
+      triggers,
+      automations,
+    };
+    return send(res, 200, state.automation);
+  }
 
   if (req.method === 'POST' && path === '/data/rundowns/import') {
     let raw = '';

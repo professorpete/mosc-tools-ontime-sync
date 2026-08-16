@@ -45,6 +45,20 @@ loaded?"
 - **Full show-flow fidelity.** Cue numbers, start/duration/end times, linked starts,
   item colours, and timer types come through. Extra sheet columns become Ontime custom
   fields automatically, and a `Notes` column fills Ontime's note field.
+- **Aux timer automations from the sheet.** Add an `Aux Timer` column and put a
+  duration (e.g. `01:00:00`) on any cue — or `none` to leave the timer alone. Each
+  duration becomes an Ontime automation: when that cue starts, Aux timer 1 stops,
+  resets to the new duration, and starts counting down. One extra automation stops
+  the aux timer when you stop playback at the end of the show. Automations are pushed
+  with every sync: entries this tool created earlier (titles starting
+  with `Mosc-sync aux:`) are replaced, while automations you built by hand in Ontime
+  — and your OSC input settings — are never touched. The downloadable project JSON
+  includes the same automations for manual imports.
+
+  > Note: keep Aux timer 1's direction set to *count down* in Ontime (the default) —
+  > automations can set and start the timer but cannot change its direction. The
+  > `Timer Type` column is now optional: without it, blue rows count down and all
+  > other rows get no timer, which is the house convention anyway.
 - **Runs on your machine, like Companion.** Download one file, double-click, and it
   opens in your browser. Because it runs locally, it reaches venue-network Ontime
   instances no hosted tool ever could — and a stage manager's tablet can use it via

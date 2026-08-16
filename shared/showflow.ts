@@ -207,6 +207,10 @@ export interface ShowFlowRow {
   title: string;
   durationRaw: string;
   timerTypeRaw: string;
+  /** Raw "Aux Timer" cell ("none", blank, or a duration). */
+  auxTimerRaw: string;
+  /** Parsed aux timer duration in ms, or null when the row does not (re)set the aux timer. */
+  auxTimerMs: number | null;
   colourRaw: string;
   colour: ColourName | null;
   colourHex: string;
@@ -237,6 +241,7 @@ const EXPECTED_HEADERS = [
   'End Time',
   'Linkstart',
   'Timer Type',
+  'Aux Timer',
   'Colour',
   'Screenstate',
   'Video',
@@ -253,6 +258,7 @@ const norm = (s: string) => (s ?? '').trim().toLowerCase().replace(/[\s#_-]+/g, 
 const HEADER_ALIASES: Record<string, string[]> = {
   Colour: ['color', 'itemcolour', 'itemcolor'],
   Linkstart: ['linkstarttrueifthisitemsstarttimelinkstothepreviousitemfalseifnot', 'link'],
+  'Aux Timer': ['aux', 'aux1', 'auxduration', 'auxtimerduration', 'auxtimer1'],
 };
 const headerMatches = (h: string, expected: string) =>
   norm(h) === norm(expected) || (HEADER_ALIASES[expected] ?? []).includes(norm(h));
@@ -292,7 +298,9 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
 
   const header = (table[headerIdx] ?? []).map((c) => c.trim());
   const MANDATORY_HEADERS = ['Cue #', 'Start Time', 'Duration', 'End Time', 'Linkstart', 'Title', 'Timer Type', 'Colour'];
-  const OPTIONAL_HEADERS = new Set(['End Time', 'Linkstart']);
+  // Timer Type is optional: when the column is absent the timer type is derived from the
+  // row colour (blue → count-down) without warnings. Aux Timer is optional by nature.
+  const OPTIONAL_HEADERS = new Set(['End Time', 'Linkstart', 'Timer Type']);
   const index: Record<string, number> = {};
   EXPECTED_HEADERS.forEach((expected) => {
     const at = header.findIndex((h) => headerMatches(h, expected));
@@ -308,7 +316,7 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
   });
 
   // Every other named column becomes an Ontime custom field (known ones keep their colour).
-  const reservedNames = [...MANDATORY_HEADERS, 'Notes'];
+  const reservedNames = [...MANDATORY_HEADERS, 'Notes', 'Aux Timer'];
   const isReserved = (label: string) => reservedNames.some((r) => headerMatches(label, r));
   const knownColour = new Map(CUSTOM_FIELD_LABELS.map((f) => [norm(f.label), f.colour]));
   const customColumns: Array<CustomColumn & { at: number }> = [];
@@ -325,6 +333,8 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
     const at = index[name];
     return at === -1 || at === undefined ? '' : (r[at] ?? '').trim();
   };
+
+  const hasTimerTypeColumn = index['Timer Type'] !== -1;
 
   const rows: ShowFlowRow[] = [];
   const seenCues = new Map<string, number>();
@@ -391,12 +401,46 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
           field: 'Timer Type',
           message: `Unsupported timer type "${timerTypeRaw}" — fell back to "${timerType}" from the row colour.`,
         });
-      } else {
+      } else if (hasTimerTypeColumn) {
         warnings.push({
           row: rowNumber,
           cue,
           field: 'Timer Type',
           message: `Blank timer type — defaulted to "${timerType}" from the row colour.`,
+        });
+      }
+    }
+
+    // ---- aux timer ("none"/blank = no action; a duration = reset & restart Aux 1 on this cue)
+    const auxTimerRaw = cell(raw, 'Aux Timer');
+    const auxNorm = auxTimerRaw.trim().toLowerCase();
+    let auxTimerMs: number | null = null;
+    if (auxTimerRaw && !['none', 'no', 'off', '-', '—'].includes(auxNorm)) {
+      auxTimerMs = parseDuration(auxTimerRaw);
+      if (auxTimerMs === null || auxTimerMs === 0) {
+        if (auxTimerMs === null) {
+          warnings.push({
+            row: rowNumber,
+            cue,
+            field: 'Aux Timer',
+            message: `Could not read aux timer "${auxTimerRaw}" — expected a duration like 00:40:00 or "none". No aux automation for this cue.`,
+          });
+        }
+        auxTimerMs = null;
+      } else if (!cue) {
+        warnings.push({
+          row: rowNumber,
+          cue,
+          field: 'Aux Timer',
+          message: `Aux timer ${auxTimerRaw} needs a cue number to build its automation — row skipped.`,
+        });
+        auxTimerMs = null;
+      } else if (auxTimerMs < 60_000) {
+        warnings.push({
+          row: rowNumber,
+          cue,
+          field: 'Aux Timer',
+          message: `Aux timer "${auxTimerRaw}" is under a minute (${Math.round(auxTimerMs / 1000)}s) — double-check it isn't meant to be minutes (e.g. 00:06:00).`,
         });
       }
     }
@@ -586,6 +630,8 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
       title: titleClean.value,
       durationRaw,
       timerTypeRaw,
+      auxTimerRaw,
+      auxTimerMs,
       colourRaw,
       colour,
       colourHex: colour ? COLOUR_HEX[colour] : '',
@@ -702,6 +748,117 @@ export function entryId(seed: string, salt = ''): string {
   return `cl${hex}`;
 }
 
+/* ------------------------------------------------------- aux automations */
+
+/**
+ * Automations generated from the "Aux Timer" column. Every generated title starts
+ * with this prefix so a later sync can find and replace ONLY its own automations,
+ * leaving anything the operator built by hand in Ontime untouched.
+ */
+export const AUX_AUTOMATION_PREFIX = 'Mosc-sync aux:';
+
+export interface OntimeAutomationFilter {
+  field: string;
+  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains' | 'not_contains';
+  value: string;
+}
+
+export interface OntimeAutomationOutput {
+  type: 'ontime';
+  action: string;
+  time?: string;
+}
+
+export interface OntimeAutomation {
+  id: string;
+  title: string;
+  filterRule: 'all' | 'any';
+  filters: OntimeAutomationFilter[];
+  outputs: OntimeAutomationOutput[];
+}
+
+export interface OntimeTrigger {
+  id: string;
+  title: string;
+  trigger: 'onLoad' | 'onStart' | 'onPause' | 'onStop' | 'onClock' | 'onUpdate' | 'onFinish' | 'onWarning' | 'onDanger';
+  automationId: string;
+}
+
+export interface AuxAutomationBundle {
+  automations: Record<string, OntimeAutomation>;
+  triggers: OntimeTrigger[];
+  /** One entry per cue that (re)sets the aux timer — for UI display. */
+  cues: Array<{ cue: string; title: string; time: string }>;
+}
+
+/** Always emit three-section HH:MM:SS — Ontime's parseUserTime reads a two-section
+ *  value like "40:00" as 40 HOURS ([hours][minutes]), so short forms are unsafe. */
+export function formatAuxTime(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+}
+
+/**
+ * Builds Ontime automations from the Aux Timer column:
+ *  - per cue with a duration: an onStart trigger filtered to that cue number that
+ *    stops → sets → starts Aux 1 (stop first: SimpleTimer.setTime does not clear the
+ *    elapsed time of a running timer, so a bare set on a running aux under-counts);
+ *  - one global onStop trigger that stops Aux 1 when playback stops (end of show).
+ * Aux timers count DOWN by default in Ontime, which is the behaviour these shows use.
+ */
+export function buildAuxAutomations(rows: ShowFlowRow[], showName = ''): AuxAutomationBundle {
+  const automations: Record<string, OntimeAutomation> = {};
+  const triggers: OntimeTrigger[] = [];
+  const cues: AuxAutomationBundle['cues'] = [];
+
+  const auxRows = rows.filter((r) => r.auxTimerMs !== null && r.auxTimerMs > 0 && r.cue);
+
+  for (const row of auxRows) {
+    const time = formatAuxTime(row.auxTimerMs as number);
+    const id = entryId(`aux:${row.cue}`, `${showName}::aux`);
+    const title = `${AUX_AUTOMATION_PREFIX} cue ${row.cue} → ${time}`;
+    automations[id] = {
+      id,
+      title,
+      filterRule: 'all',
+      filters: [{ field: 'eventNow.cue', operator: 'equals', value: row.cue }],
+      outputs: [
+        { type: 'ontime', action: 'aux1-stop' },
+        { type: 'ontime', action: 'aux1-set', time },
+        { type: 'ontime', action: 'aux1-start' },
+      ],
+    };
+    triggers.push({
+      id: entryId(`auxtrig:${row.cue}`, `${showName}::aux`),
+      title,
+      trigger: 'onStart',
+      automationId: id,
+    });
+    cues.push({ cue: row.cue, title: row.title, time });
+  }
+
+  if (auxRows.length > 0) {
+    const stopId = entryId('aux:show-stop', `${showName}::aux`);
+    const stopTitle = `${AUX_AUTOMATION_PREFIX} stop aux with show`;
+    automations[stopId] = {
+      id: stopId,
+      title: stopTitle,
+      filterRule: 'all',
+      filters: [],
+      outputs: [{ type: 'ontime', action: 'aux1-stop' }],
+    };
+    triggers.push({
+      id: entryId('auxtrig:show-stop', `${showName}::aux`),
+      title: stopTitle,
+      trigger: 'onStop',
+      automationId: stopId,
+    });
+  }
+
+  return { automations, triggers, cues };
+}
+
 export interface ConvertOptions {
   showName: string;
   sheetUrl: string;
@@ -714,6 +871,7 @@ export interface ConversionResult {
   customFields: Record<string, OntimeCustomField>;
   customFieldOrder: string[];
   projectFile: OntimeProjectFile;
+  auxAutomations: AuxAutomationBundle;
 }
 
 export function convertToOntime(parsed: ParsedShowFlow, options: ConvertOptions): ConversionResult {
@@ -769,6 +927,8 @@ export function convertToOntime(parsed: ParsedShowFlow, options: ConvertOptions)
 
   const customFields = buildCustomFields(parsed.customColumns);
   const customFieldOrder = parsed.customColumns.map((c) => customFieldKey(c.label));
+  const auxAutomations = buildAuxAutomations(parsed.rows, options.showName);
+  const hasAux = Object.keys(auxAutomations.automations).length > 0;
 
   const projectFile: OntimeProjectFile = {
     rundowns: { [rundownId]: rundown },
@@ -796,15 +956,15 @@ export function convertToOntime(parsed: ParsedShowFlow, options: ConvertOptions)
     urlPresets: [],
     customFields,
     automation: {
-      enabledAutomations: false,
+      enabledAutomations: hasAux,
       enabledOscIn: false,
       oscPortIn: 8888,
-      triggers: [],
-      automations: {},
+      triggers: auxAutomations.triggers,
+      automations: auxAutomations.automations,
     },
   };
 
-  return { rundown, customFields, customFieldOrder, projectFile };
+  return { rundown, customFields, customFieldOrder, projectFile, auxAutomations };
 }
 
 /** Validation mirroring the master reference checklist. */

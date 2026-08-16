@@ -7,7 +7,16 @@
  *   GET  {base}/data/rundowns/current  -> normalised Rundown
  *   GET  {base}/data/custom-fields     -> CustomFields
  *   POST {base}/data/rundowns/import   -> { loaded, rundowns[] }
+ *   GET  {base}/data/automations       -> AutomationSettings
+ *   POST {base}/data/automations       -> AutomationSettings (replaces settings wholesale)
  */
+
+import {
+  AUX_AUTOMATION_PREFIX,
+  type AuxAutomationBundle,
+  type OntimeAutomation,
+  type OntimeTrigger,
+} from '@shared/showflow';
 
 const TIMEOUT_MS = 8000;
 
@@ -203,4 +212,84 @@ export function importRundown(
     method: 'POST',
     body: payload,
   });
+}
+
+/* --------------------------------------------------------- automations */
+
+export interface AutomationSettings {
+  enabledAutomations: boolean;
+  enabledOscIn: boolean;
+  oscPortIn: number;
+  triggers: OntimeTrigger[];
+  automations: Record<string, OntimeAutomation>;
+}
+
+export const getAutomationSettings = (baseUrl: string, token?: string | null) =>
+  ontimeRequest<AutomationSettings>({ baseUrl, token, path: '/data/automations' });
+
+export const postAutomationSettings = (
+  baseUrl: string,
+  token: string | null | undefined,
+  body: AutomationSettings,
+) =>
+  ontimeRequest<AutomationSettings>({
+    baseUrl,
+    token,
+    path: '/data/automations',
+    method: 'POST',
+    body,
+  });
+
+const isOurs = (title: unknown) =>
+  typeof title === 'string' && title.startsWith(AUX_AUTOMATION_PREFIX);
+
+/**
+ * Pushes the aux-timer automations generated from the sheet to an Ontime instance.
+ *
+ * Read-merge-write: fetches the instance's current automation settings, strips ONLY
+ * entries a previous sync created (title starts with the Mosc-sync prefix), appends
+ * the freshly generated ones, and posts the settings back. Manual automations and
+ * the OSC-input configuration are preserved untouched. Ontime only fires automations
+ * when enabledAutomations is true, so it is switched on whenever we push any.
+ */
+export async function syncAuxAutomations(
+  baseUrl: string,
+  token: string | null | undefined,
+  bundle: AuxAutomationBundle,
+): Promise<{ written: number; removedStale: number; enabled: boolean }> {
+  const existing = await getAutomationSettings(baseUrl, token);
+
+  const existingAutomations = existing.automations ?? {};
+  const keptAutomations: Record<string, OntimeAutomation> = {};
+  let removedStale = 0;
+  for (const [id, automation] of Object.entries(existingAutomations)) {
+    if (isOurs(automation?.title)) {
+      removedStale++;
+      continue;
+    }
+    keptAutomations[id] = automation;
+  }
+
+  const keptTriggers = (existing.triggers ?? []).filter((t) => {
+    if (isOurs(t?.title)) return false;
+    const targetAutomation = existingAutomations[t?.automationId ?? ''];
+    return !isOurs(targetAutomation?.title);
+  });
+
+  const written = Object.keys(bundle.automations).length;
+  if (written === 0 && removedStale === 0) {
+    // Nothing to add and nothing of ours to clean up — leave the instance untouched.
+    return { written: 0, removedStale: 0, enabled: existing.enabledAutomations ?? false };
+  }
+
+  const enabled = written > 0 ? true : (existing.enabledAutomations ?? false);
+  await postAutomationSettings(baseUrl, token, {
+    enabledAutomations: enabled,
+    enabledOscIn: existing.enabledOscIn ?? false,
+    oscPortIn: existing.oscPortIn ?? 8888,
+    triggers: [...keptTriggers, ...bundle.triggers],
+    automations: { ...keptAutomations, ...bundle.automations },
+  });
+
+  return { written, removedStale, enabled };
 }

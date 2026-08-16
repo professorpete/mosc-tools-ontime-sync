@@ -65,7 +65,10 @@ const MODE_COPY: Record<Mode, string> = {
 /** "X added · Y changed · Z removed · W unchanged" — the shared wording for push results. */
 function countsText(s: Partial<SyncSummary> | null | undefined): string | null {
   if (!s || typeof s.added !== 'number') return null;
-  return `${s.added} added · ${s.changed ?? 0} changed · ${s.removed ?? 0} removed · ${s.unchanged ?? 0} unchanged`;
+  const base = `${s.added} added · ${s.changed ?? 0} changed · ${s.removed ?? 0} removed · ${s.unchanged ?? 0} unchanged`;
+  return typeof s.automations === 'number' && s.automations > 0
+    ? `${base} · ${s.automations} aux automations`
+    : base;
 }
 
 function StatusDot({ state }: { state: 'unknown' | 'ok' | 'error' }) {
@@ -318,9 +321,11 @@ function TargetCard({
         description: [
           counts,
           data.mode === 'new' && data.rundownTitle ? `New rundown “${data.rundownTitle}”` : null,
+          data.automationsWarning,
         ]
           .filter(Boolean)
           .join(' — '),
+        ...(data.automationsWarning ? { variant: 'destructive' as const } : {}),
       });
       setConfirmOpen(false);
       diffMutation.mutate();

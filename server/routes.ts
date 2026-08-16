@@ -8,6 +8,7 @@ import {
   getRundownById,
   getCustomFields,
   importRundown,
+  syncAuxAutomations,
   normaliseBaseUrl,
   isPrivateHost,
   OntimeError,
@@ -93,6 +94,7 @@ function snapshotPayload(s: SheetSnapshot) {
     customFields: s.conversion.customFields,
     customFieldOrder: s.conversion.customFieldOrder,
     entryCount: s.conversion.rundown.order.length,
+    auxAutomations: s.conversion.auxAutomations.cues,
   };
 }
 
@@ -535,6 +537,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const createdRundownId =
         mode === 'new' ? (result.loaded ?? null) : (targetRundownId ?? null);
 
+      /* Push aux-timer automations generated from the Aux Timer column. A failure here
+         must not undo a successful rundown push — report it as a warning instead. */
+      let automations: { written: number; removedStale: number; enabled: boolean } | null = null;
+      let automationsWarning: string | null = null;
+      try {
+        automations = await syncAuxAutomations(
+          target.baseUrl,
+          target.authToken,
+          s.conversion.auxAutomations,
+        );
+      } catch (err) {
+        automationsWarning = `Rundown synced, but pushing aux-timer automations failed: ${(err as Error).message}`;
+      }
+
       const logSummary = {
         mode,
         targetRundownId: createdRundownId,
@@ -544,6 +560,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         changed: counts.changed,
         removed: counts.removed,
         unchanged: counts.unchanged,
+        automations: automations?.written ?? 0,
       };
 
       storage.addSyncLog({
@@ -562,6 +579,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         rundownTitle,
         result,
         summary: logSummary,
+        automations,
+        automationsWarning,
       });
     } catch (err) {
       const e = err as Error;

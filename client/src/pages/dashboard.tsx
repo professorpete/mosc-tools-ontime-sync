@@ -547,6 +547,9 @@ export default function Dashboard() {
                 <ColourLegend />
                 <span className="cue-cell text-xs text-muted-foreground">
                   {snapshot.entryCount} entries · {Object.keys(snapshot.customFields).length} custom fields
+                  {snapshot.auxAutomations?.length
+                    ? ` · aux timer on cue ${snapshot.auxAutomations.map((a) => a.cue).join(', ')}`
+                    : ''}
                 </span>
               </div>
               <ParseWarnings snapshot={snapshot} />

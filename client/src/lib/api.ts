@@ -22,6 +22,8 @@ export interface ShowFlowSnapshot {
   customFields: Record<string, OntimeCustomField>;
   customFieldOrder: string[];
   entryCount: number;
+  /** Cues whose Aux Timer column (re)sets Aux 1 — each becomes an Ontime automation. */
+  auxAutomations: Array<{ cue: string; title: string; time: string }>;
 }
 
 export interface TargetWithHistory extends Target {
@@ -56,6 +58,8 @@ export interface SyncSummary {
   changed: number;
   removed: number;
   unchanged: number;
+  /** Number of aux-timer automations pushed with this sync. */
+  automations?: number;
 }
 
 export interface SyncResult {
@@ -64,6 +68,8 @@ export interface SyncResult {
   targetRundownId: string | null;
   rundownTitle: string | null;
   summary: SyncSummary;
+  automations: { written: number; removedStale: number; enabled: boolean } | null;
+  automationsWarning: string | null;
 }
 
 export interface NewRundownName {
