@@ -91,8 +91,11 @@ targets, and history back to defaults.
   un-minimized, useful when running as a background/headless service).
 
 An Excel template for the expected sheet layout is available in-app
-(`/showflow-template.xlsx`). The sheet just needs to be viewable by link (or published
-to the web).
+(`/showflow-template.xlsx`). It includes the optional `Aux Timer` column (with sample
+reset rows) alongside the classic `Timer Type` column (`none` / `count-down` for the
+primary timer) — hover any header cell for that column's rules. Regenerate it with
+`python3 script/generate-template.py`. The sheet just needs to be viewable by link
+(or published to the web).
 
 ## Run from source (macOS / Linux / Windows)
 

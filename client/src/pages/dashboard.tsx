@@ -140,7 +140,7 @@ function SettingsDialog({
     ['End Time', 'start + duration'],
     ['Linkstart', 'TRUE = starts when the previous item ends · FALSE = pinned to Start Time'],
     ['Title', 'what shows in Ontime'],
-    ['Timer Type', <><span className="font-mono">count-down</span> for a countdown timer, <span className="font-mono">none</span> otherwise</>],
+    ['Timer Type', <><span className="font-mono">count-down</span> for a countdown timer, <span className="font-mono">none</span> otherwise — drop the whole column to infer it from Colour (Blue → count-down)</>],
     ['Colour', <span className="inline-flex items-center gap-1.5">
       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#FFCC78' }} title="Yellow — videos" />
       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: '#77C785' }} title="Green — breaks / walk-ins" />
@@ -270,7 +270,16 @@ function SettingsDialog({
                 </div>
               ))}
             </div>
-            <p className="mt-2.5 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">
+            <p className="mt-2.5 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground" data-testid="text-aux-timer-callout">
+              <span className="font-mono text-xs font-semibold text-foreground">Aux Timer</span>
+              <span className="ml-1.5 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">optional · special</span>
+              <span className="block">
+                Put a duration (e.g. <span className="font-mono">1:00:00</span>) on the row where Ontime's aux timer should reset and
+                start counting down; <span className="font-mono">none</span> or blank elsewhere. Synced as Ontime automations — not a
+                custom field. It keeps running across items and stops with the show.
+              </span>
+            </p>
+            <p className="mt-2 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">
               Any extra column after these becomes an Ontime <span className="font-medium text-foreground">custom field</span> automatically
               (e.g. Video, Lighting, Audio, Speakers). A <span className="font-mono">Notes</span> column fills the Ontime note instead.
             </p>
