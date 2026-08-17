@@ -6,7 +6,7 @@
 
 **Your show flow lives in a Google Sheet. Your timers live in Ontime. Keep them in sync — without ever opening Ontime's settings.**
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20app-2ea44f?style=for-the-badge&logo=windows)](https://github.com/professorpete/mosc-tools-ontime-sync/raw/windows-download/MoscToolsOntimeSync.exe)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%20app-2ea44f?style=for-the-badge&logo=windows)](https://raw.githubusercontent.com/professorpete/mosc-tools-ontime-sync/windows-download/MoscToolsOntimeSync.exe)
 &nbsp;
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-☕-FFDD00?style=for-the-badge)](https://buymeacoffee.com/mosctools)
 
@@ -70,7 +70,7 @@ loaded?"
 
 ## Download & run (Windows)
 
-1. Download [`MoscToolsOntimeSync.exe`](https://github.com/professorpete/mosc-tools-ontime-sync/raw/windows-download/MoscToolsOntimeSync.exe)
+1. Download [`MoscToolsOntimeSync.exe`](https://raw.githubusercontent.com/professorpete/mosc-tools-ontime-sync/windows-download/MoscToolsOntimeSync.exe)
    (44 MB) — also linked from the
    [latest release](https://github.com/professorpete/mosc-tools-ontime-sync/releases/latest).
 2. Double-click it. A console window opens briefly, your browser opens to
