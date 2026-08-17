@@ -275,8 +275,9 @@ function SettingsDialog({
               <span className="ml-1.5 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">optional · special</span>
               <span className="block">
                 Put a duration (e.g. <span className="font-mono">1:00:00</span>) on the row where Ontime's aux timer should reset and
-                start counting down; <span className="font-mono">none</span> or blank elsewhere. Synced as Ontime automations — not a
-                custom field. It keeps running across items and stops with the show.
+                start counting down; <span className="font-mono">00:00:00</span> clears it (stops and blanks displays until the next
+                reset); <span className="font-mono">none</span> or blank elsewhere. Synced as Ontime automations — not a custom field.
+                It keeps running across items and stops with the show.
               </span>
             </p>
             <p className="mt-2 border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">

@@ -412,31 +412,29 @@ export function parseShowFlowCsv(csv: string): ParsedShowFlow {
       }
     }
 
-    // ---- aux timer ("none"/blank = no action; a duration = reset & restart Aux 1 on this cue)
+    // ---- aux timer ("none"/blank = no action; a duration = reset & restart Aux 1 on this
+    // cue; an explicit 00:00:00 = CLEAR — stop Aux 1 and zero it so displays show nothing)
     const auxTimerRaw = cell(raw, 'Aux Timer');
     const auxNorm = auxTimerRaw.trim().toLowerCase();
     let auxTimerMs: number | null = null;
     if (auxTimerRaw && !['none', 'no', 'off', '-', '—'].includes(auxNorm)) {
       auxTimerMs = parseDuration(auxTimerRaw);
-      if (auxTimerMs === null || auxTimerMs === 0) {
-        if (auxTimerMs === null) {
-          warnings.push({
-            row: rowNumber,
-            cue,
-            field: 'Aux Timer',
-            message: `Could not read aux timer "${auxTimerRaw}" — expected a duration like 00:40:00 or "none". No aux automation for this cue.`,
-          });
-        }
-        auxTimerMs = null;
+      if (auxTimerMs === null) {
+        warnings.push({
+          row: rowNumber,
+          cue,
+          field: 'Aux Timer',
+          message: `Could not read aux timer "${auxTimerRaw}" — expected a duration like 00:40:00, 00:00:00 to clear, or "none". No aux automation for this cue.`,
+        });
       } else if (!cue) {
         warnings.push({
           row: rowNumber,
           cue,
           field: 'Aux Timer',
-          message: `Aux timer ${auxTimerRaw} needs a cue number to build its automation — row skipped.`,
+          message: `Aux timer ${auxTimerRaw} needs a cue number to build its automation — row skipped. Add a cue number to this row.`,
         });
         auxTimerMs = null;
-      } else if (auxTimerMs < 60_000) {
+      } else if (auxTimerMs > 0 && auxTimerMs < 60_000) {
         warnings.push({
           row: rowNumber,
           cue,
@@ -813,22 +811,29 @@ export function buildAuxAutomations(rows: ShowFlowRow[], showName = ''): AuxAuto
   const triggers: OntimeTrigger[] = [];
   const cues: AuxAutomationBundle['cues'] = [];
 
-  const auxRows = rows.filter((r) => r.auxTimerMs !== null && r.auxTimerMs > 0 && r.cue);
+  const auxRows = rows.filter((r) => r.auxTimerMs !== null && r.cue);
 
   for (const row of auxRows) {
-    const time = formatAuxTime(row.auxTimerMs as number);
+    const ms = row.auxTimerMs as number;
+    const isClear = ms === 0; // explicit 00:00:00 — stop Aux 1 and zero it (displays go blank)
+    const time = formatAuxTime(ms);
     const id = entryId(`aux:${row.cue}`, `${showName}::aux`);
-    const title = `${AUX_AUTOMATION_PREFIX} cue ${row.cue} → ${time}`;
+    const title = `${AUX_AUTOMATION_PREFIX} cue ${row.cue} → ${isClear ? 'clear' : time}`;
     automations[id] = {
       id,
       title,
       filterRule: 'all',
       filters: [{ field: 'eventNow.cue', operator: 'equals', value: row.cue }],
-      outputs: [
-        { type: 'ontime', action: 'aux1-stop' },
-        { type: 'ontime', action: 'aux1-set', time },
-        { type: 'ontime', action: 'aux1-start' },
-      ],
+      outputs: isClear
+        ? [
+            { type: 'ontime', action: 'aux1-stop' },
+            { type: 'ontime', action: 'aux1-set', time: '00:00:00' },
+          ]
+        : [
+            { type: 'ontime', action: 'aux1-stop' },
+            { type: 'ontime', action: 'aux1-set', time },
+            { type: 'ontime', action: 'aux1-start' },
+          ],
     };
     triggers.push({
       id: entryId(`auxtrig:${row.cue}`, `${showName}::aux`),
@@ -836,7 +841,7 @@ export function buildAuxAutomations(rows: ShowFlowRow[], showName = ''): AuxAuto
       trigger: 'onStart',
       automationId: id,
     });
-    cues.push({ cue: row.cue, title: row.title, time });
+    cues.push({ cue: row.cue, title: row.title, time: isClear ? 'clear' : time });
   }
 
   if (auxRows.length > 0) {

@@ -45,6 +45,7 @@ COLUMNS = [
      "Drives Ontime's Aux timer 1 with automations built at sync time.\n"
      "Put a duration (e.g. 1:00:00 or 0:40:00) on the row where the aux timer should reset and start counting down. "
      "It keeps running across items until another row resets it, and it stops when you stop the show.\n"
+     "00:00:00 clears the timer: it stops, zeroes out, and displays show nothing until the next reset row.\n"
      "Leave cells blank or write \"none\" on rows that don't touch it — or delete the whole column if you don't use aux timers.\n"
      "Keep Aux timer 1 set to count-down direction in Ontime."),
     ("Screenstate", 12, OPTIONAL_FILL,
@@ -82,7 +83,8 @@ HOW_IT_WORKS = [
     (16, "5.  Aux Timer (optional, special): drives Ontime's Aux timer 1 via automations created at sync time.", True, 11),
     (17, "     Put a duration (e.g. 1:00:00) on the row where the aux timer should reset and start counting down.", False, 11),
     (18, "     It keeps running across items until another row resets it, and it stops when you stop the show.", False, 11),
-    (19, "     Blank or 'none' on rows that don't touch it. Delete the column if you don't use aux timers.", False, 11),
+    (19, "     00:00:00 clears the timer — it stops, zeroes out, and displays show nothing until the next reset row.", False, 11),
+    (20, "     Blank or 'none' on rows that don't touch it. Delete the column if you don't use aux timers.", False, 11),
     (21, "6.  Every other column you add after the required eight becomes an Ontime custom field automatically", True, 11),
     (22, "     (Screenstate, Video, Lighting, Audio, Speakers, Stage are just examples — rename or add your own).", False, 11),
     (23, "     'Notes' is special: it fills the Ontime note field instead.", False, 11),

@@ -48,7 +48,9 @@ loaded?"
 - **Aux timer automations from the sheet.** Add an `Aux Timer` column and put a
   duration (e.g. `01:00:00`) on any cue — or `none` to leave the timer alone. Each
   duration becomes an Ontime automation: when that cue starts, Aux timer 1 stops,
-  resets to the new duration, and starts counting down. One extra automation stops
+  resets to the new duration, and starts counting down. An explicit `00:00:00`
+  **clears** the timer instead: it stops and zeroes out on that cue, so aux displays
+  show nothing until the next reset row. One extra automation stops
   the aux timer when you stop playback at the end of the show. Automations are pushed
   with every sync: entries this tool created earlier (titles starting
   with `Mosc-sync aux:`) are replaced, while automations you built by hand in Ontime
