@@ -20,8 +20,12 @@ import {
   validateRundown,
   diffRundowns,
   sheetCsvUrl,
+  sheetExportCsvUrl,
   sheetEditUrl,
   extractSheetTabNames,
+  extractSheetTabs,
+  findSheetTab,
+  type SheetTab,
   rundownBaseTitle,
   versionedRundownTitle,
   type ParsedShowFlow,
@@ -98,6 +102,36 @@ function snapshotPayload(s: SheetSnapshot) {
   };
 }
 
+/** Tab name→gid map per sheet, cached briefly so one sync doesn't refetch the edit page. */
+const tabMapCache = new Map<string, { tabs: SheetTab[]; at: number }>();
+const TAB_MAP_TTL_MS = 60_000;
+
+async function resolveTabGid(sheetId: string, tabName: string): Promise<string | null> {
+  try {
+    const cached = tabMapCache.get(sheetId);
+    let tabs = cached && Date.now() - cached.at < TAB_MAP_TTL_MS ? cached.tabs : null;
+    if (!tabs) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        const res = await fetch(sheetEditUrl(sheetId), {
+          signal: controller.signal,
+          redirect: 'follow',
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+        });
+        if (!res.ok) return null;
+        tabs = extractSheetTabs(await res.text());
+      } finally {
+        clearTimeout(timer);
+      }
+      if (tabs.length > 0) tabMapCache.set(sheetId, { tabs, at: Date.now() });
+    }
+    return findSheetTab(tabs, tabName)?.gid ?? null;
+  } catch {
+    return null; // caller falls back to the gviz-by-name URL
+  }
+}
+
 async function fetchSheet(sessionId: string): Promise<SheetSnapshot> {
   const settings = storage.getSettings(sessionId);
   if (!settings.sheetId.trim()) {
@@ -107,7 +141,12 @@ async function fetchSheet(sessionId: string): Promise<SheetSnapshot> {
     err.status = 400;
     throw err;
   }
-  const csvUrl = sheetCsvUrl(settings.sheetId, settings.tabName);
+  // Prefer the raw export-by-gid URL: unlike gviz it does no header inference, so
+  // banner rows and multiple frozen rows come back as plain rows the parser can skip.
+  const gid = await resolveTabGid(settings.sheetId, settings.tabName);
+  const csvUrl = gid !== null
+    ? sheetExportCsvUrl(settings.sheetId, gid)
+    : sheetCsvUrl(settings.sheetId, settings.tabName);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -275,12 +314,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (response.status === 404) {
         return res.status(404).json({ message: `No sheet found with ID "${sheetId}".` });
       }
-      const tabs = extractSheetTabNames(html);
+      // Bootstrap-data extraction first (also yields gids); tab-caption markup as backup.
+      const tabPairs = extractSheetTabs(html);
+      const tabs = tabPairs.length > 0 ? tabPairs.map((t) => t.name) : extractSheetTabNames(html);
       if (!response.ok || tabs.length === 0) {
         return res.status(422).json({
           message: `Could not read tabs for sheet "${sheetId}" — make sure it's shared as "Anyone with the link can view", then try again or type the tab name manually.`,
         });
       }
+      if (tabPairs.length > 0) tabMapCache.set(sheetId, { tabs: tabPairs, at: Date.now() });
       res.json({ tabs });
     } catch (err) {
       const e = err as Error;

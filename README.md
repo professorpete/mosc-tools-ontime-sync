@@ -59,6 +59,10 @@ loaded?"
   > automations can set and start the timer but cannot change its direction. The
   > `Timer Type` column is now optional: without it, blue rows count down and all
   > other rows get no timer, which is the house convention anyway.
+- **Banner rows and frozen rows are fine.** Sheets are fetched with the raw CSV export
+  (by tab id), so a title row above the header — like `ONTIME Rundown:` — or several
+  frozen rows won't confuse the reader: it scans down the sheet for the real header row
+  and simply notes the banner rows it skipped.
 - **Runs on your machine, like Companion.** Download one file, double-click, and it
   opens in your browser. Because it runs locally, it reaches venue-network Ontime
   instances no hosted tool ever could — and a stage manager's tablet can use it via

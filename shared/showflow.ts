@@ -259,6 +259,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   Colour: ['color', 'itemcolour', 'itemcolor'],
   Linkstart: ['linkstarttrueifthisitemsstarttimelinkstothepreviousitemfalseifnot', 'link'],
   'Aux Timer': ['aux', 'aux1', 'auxduration', 'auxtimerduration', 'auxtimer1'],
+  'Timer Type': ['timetype'], // common client typo
 };
 const headerMatches = (h: string, expected: string) =>
   norm(h) === norm(expected) || (HEADER_ALIASES[expected] ?? []).includes(norm(h));
@@ -1134,8 +1135,19 @@ export function versionedRundownTitle(base: string, existingTitles: readonly str
 
 /* ------------------------------------------------------------- sheet urls */
 
+/**
+ * gviz CSV endpoint — fallback only. gviz runs header inference: it merges ALL frozen
+ * rows (and auto-detected banner rows) into the column labels, and its per-column type
+ * coercion can null out header strings entirely. Sheets with more than one frozen row
+ * or a title row above the header come back mangled. Prefer sheetExportCsvUrl.
+ */
 export function sheetCsvUrl(sheetId: string, tabName: string): string {
   return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+}
+
+/** Raw grid CSV export by tab gid — no header inference, rows come back exactly as-is. */
+export function sheetExportCsvUrl(sheetId: string, gid: string): string {
+  return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/export?format=csv&gid=${encodeURIComponent(gid)}`;
 }
 
 export function sheetEditUrl(sheetId: string): string {
@@ -1169,4 +1181,43 @@ export function extractSheetTabNames(html: string): string[] {
     if (name) names.push(name);
   }
   return names;
+}
+
+export interface SheetTab {
+  name: string;
+  gid: string;
+}
+
+/**
+ * Extracts tab name → gid pairs from the /edit page's bootstrap data. Each worksheet
+ * appears in an escaped JSON blob shaped like `[N,M,\"<gid>\",[{\"1\":[[0,0,\"<name>\"`.
+ * Like extractSheetTabNames this relies on Google's internal markup — callers must
+ * fall back to the gviz-by-name URL when it returns no match.
+ */
+export function extractSheetTabs(html: string): SheetTab[] {
+  const tabs: SheetTab[] = [];
+  const seen = new Set<string>();
+  const pattern = /\[\d+,\d+,\\"(\d+)\\",\[\{\\"1\\":\[\[0,0,\\"((?:[^"\\]|\\\\.)*?)\\"/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html)) !== null) {
+    const gid = match[1];
+    if (seen.has(gid)) continue;
+    seen.add(gid);
+    let name: string;
+    try {
+      name = JSON.parse(`"${match[2].replace(/\\\\/g, '\\')}"`);
+    } catch {
+      name = match[2];
+    }
+    name = name.trim();
+    if (name) tabs.push({ name, gid });
+  }
+  return tabs;
+}
+
+const normTab = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** Finds a tab by name (exact first, then case/whitespace-insensitive). */
+export function findSheetTab(tabs: SheetTab[], tabName: string): SheetTab | undefined {
+  return tabs.find((t) => t.name === tabName.trim()) ?? tabs.find((t) => normTab(t.name) === normTab(tabName));
 }
